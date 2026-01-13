@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Easy_Editor</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/css/css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/htmlmixed/htmlmixed.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+    
+    <style>
+        :root {
+            --bg0: #282828; --bg1: #3c3836; --bg2: #504945; --bg_h: #1d2021;
+            --fg: #ebdbb2; --red: #fb4934; --green: #b8bb26;
+            --yellow: #fabd2f; --blue: #83a598; --orange: #fe8019; --gray: #928374;
+        }
+
+        body { background-color: var(--bg0); color: var(--fg); font-family: 'Fira Code', 'Courier New', monospace; overflow: hidden; }
+
+        /* --- EDITOR --- */
+        .CodeMirror { height: 100% !important; background: var(--bg0) !important; color: var(--fg) !important; font-size: 14px; }
+        .CodeMirror-gutters { background: var(--bg0) !important; border-right: 1px solid var(--bg1) !important; }
+        .CodeMirror-linenumber { color: var(--bg2) !important; }
+        .CodeMirror-cursor { border-left: 2px solid var(--orange) !important; }
+        
+        /* GHOST TEXT (FADED TYPING) */
+        .ghost-text { color: #5a524c !important; font-style: italic; pointer-events: none; opacity: 0.8; }
+
+        /* --- TERMINAL UI --- */
+        .btn-term {
+            background: var(--bg1); color: var(--fg); border: 1px solid var(--bg2);
+            padding: 2px 12px; font-size: 11px; font-weight: bold; cursor: pointer;
+            text-transform: uppercase; border-radius: 0; transition: 0.1s;
+        }
+        .btn-term:hover { background: var(--bg2); color: var(--yellow); }
+        .btn-term.active { background: var(--orange); color: var(--bg0); border-color: var(--orange); }
+
+        .resizer-h { width: 4px; background: var(--bg_h); cursor: col-resize; z-index: 50; }
+        .resizer-h:hover { background: var(--orange); }
+        .resizer-v { height: 4px; background: var(--bg_h); cursor: row-resize; z-index: 50; }
+        .resizer-v:hover { background: var(--orange); }
+
+        /* --- MODAL --- */
+        .gruv-border { border: 1px solid var(--bg2); box-shadow: 12px 12px 0px rgba(0,0,0,0.5); }
+        .input-cmd { background: var(--bg_h); border: 1px solid var(--bg2); color: var(--yellow); padding: 5px; outline: none; font-family: monospace; }
+        
+        /* SYNTAX */
+        .cm-tag { color: var(--red) !important; } .cm-attribute { color: var(--yellow) !important; }
+        .cm-string { color: var(--green) !important; } .cm-keyword { color: var(--orange) !important; }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+
+    <!-- HEADER -->
+    <header class="h-10 bg-[#1d2021] border-b border-[#3c3836] flex items-center justify-between px-3 shrink-0">
+        <div class="flex items-center gap-2">
+            <button id="btnExp" class="btn-term text-[#83a598]">FILES [CTRL-Q]</button>
+            <div id="activeTab" class="text-[11px] font-bold text-[#fabd2f] bg-[#282828] px-4 py-1 border border-[#3c3836] italic flex items-center gap-2">
+                <span class="text-[#928374]">FILE:</span> index.html
+            </div>
+            <button id="btnSaveLocal" class="btn-term text-[#b8bb26]">save [CTRL-S]</button>
+        </div>
+
+        <div class="flex items-center gap-1">
+            <button id="layH" class="btn-term" title="Vertical Split">V-Split</button>
+            <button id="layV" class="btn-term" title="Horizontal Split">H-Split</button>
+            <button id="layF" class="btn-term" title="Toggle Focus">Max</button>
+            <div class="w-4"></div>
+            <button id="btnRunFull" class="btn-term active">▶ preview</button>
+        </div>
+    </header>
+
+    <!-- WORKSPACE -->
+    <main id="workspace" class="flex-grow flex flex-row relative overflow-hidden">
+        <div id="paneCode" class="w-1/2 h-full relative overflow-hidden">
+            <textarea id="editorArea"></textarea> 
+        </div>
+        
+        <div id="resizer" class="resizer-h"></div>
+        
+        <div id="panePreview" class="flex-grow bg-white relative">
+            <div id="dragOverlay" class="absolute inset-0 z-50 hidden"></div>
+            <iframe id="liveFrame" class="w-full h-full border-none"></iframe>
+        </div>
+    </main>
+
+    <!-- STATUS BAR -->
+    <footer class="h-6 bg-[#3c3836] text-[#a89984] flex justify-between items-center px-2 text-[11px] font-mono shrink-0">
+        <div class="flex items-center gap-3">
+            <span id="vimMode" class="bg-[#fabd2f] text-[#282828] font-bold px-2 uppercase">Normal</span>
+            <span id="msgArea" class="text-[#fabd2f] font-bold"></span>
+        </div>
+        <div class="flex items-center gap-4">
+            <span id="fileType">html-mixed</span>
+            <span id="cursorPos" class="text-[#ebdbb2] bg-[#1d2021] px-3 border border-[#504945]">1:1</span>
+        </div>
+    </footer>
+
+    <!-- FILE EXPLORER -->
+    <div id="modalExp" class="fixed inset-0 z-[100] bg-black/80 hidden flex items-center justify-center p-4">
+        <div class="gruv-border bg-[#282828] w-full max-w-2xl flex flex-col">
+            <div class="p-2 bg-[#1d2021] border-b border-[#3c3836] flex justify-between items-center text-[10px]">
+                <span class="text-[#fe8019] font-black tracking-widest">FILES</span>
+                <button onclick="toggleExp(false)" class="text-[#fb4934] font-bold">[ESC TO EXIT]</button>
+            </div>
+            
+            <div class="flex h-[400px]">
+                <div class="w-1/2 border-r border-[#3c3836] p-4 flex flex-col gap-6 bg-[#212121]">
+                    <div>
+                        <p class="text-[9px] text-[#928374] mb-2 font-bold uppercase">Fetch Remote Source</p>
+                        <div class="flex gap-1">
+                            <input type="text" id="urlInput" placeholder="Enter raw URL..." class="input-cmd flex-grow text-[10px]">
+                            <button id="btnFetch" class="btn-term text-blue-400">Fetch</button>
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <button id="btnNew" class="btn-term w-full text-left">+ Touch New File</button>
+                        <button id="btnUpload" class="btn-term w-full text-left">^ Upload Local</button>
+                        <button id="btnExport" class="btn-term w-full text-left"># Download</button>
+                    </div>
+                </div>
+                <div class="w-1/2 flex flex-col bg-[#282828]">
+                    <div class="text-[9px] p-2 bg-[#1d2021] text-[#928374] font-bold border-b border-[#3c3836]">LOCAL_STORAGE</div>
+                    <div id="fileItems" class="flex-grow overflow-y-auto"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FULLSCREEN RUNNER -->
+    <div id="fsContainer" class="fixed inset-0 z-[200] hidden bg-black flex flex-col">
+        <div class="h-8 bg-[#1d2021] border-b border-[#3c3836] flex items-center justify-between px-4 shrink-0">
+            <span class="text-[10px] font-bold text-[#fabd2f] tracking-widest">preview</span>
+            <button id="btnCloseFs" class="text-[#fb4934] text-[10px] font-black border border-[#fb4934] px-2 hover:bg-[#fb4934] hover:text-white">CLOSE [ESC]</button>
+        </div>
+        <iframe id="fsFrame" class="w-full flex-grow border-none bg-white"></iframe>
+    </div>
+
+    <input type="file" id="fileInput" class="hidden">
+
+    <script>
+        const PREFIX = 'nv3_';
+        let currentFile = 'index.html';
+        const msgArea = document.getElementById('msgArea');
+        const liveFrame = document.getElementById('liveFrame');
+	async function getMasterDict() {
+
+        const FALLBACK_DICT = {
+            html: ["!DOCTYPE", "html", "body", "div", "span", "section", "article", "header", "footer", "nav", "aside", "main", "figure", "figcaption", "button", "input", "textarea", "select", "option", "form", "label", "fieldset", "legend", "script", "style", "link", "meta", "iframe", "canvas", "img", "picture", "video", "audio", "table", "thead", "tbody", "tr", "th", "td", "ul", "ol", "li", "details", "summary", "h1", "h2", "h3", "p", "blockquote", "pre", "code", "strong", "em", "abbr", "address", "area", "base", "bdi", "bdo", "br", "caption", "cite", "col", "data", "datalist", "del", "dfn", "dialog", "hr", "i", "ins", "kbd", "map", "mark", "meter", "noscript", "object", "output", "progress", "q", "rp", "rt", "ruby", "s", "samp", "small", "source", "sub", "summary", "sup", "svg", "template", "time", "track", "u", "var", "wbr"],
+            css: ["display", "flex", "grid", "position", "top", "right", "bottom", "left", "float", "clear", "z-index", "margin", "padding", "width", "height", "max-width", "min-width", "font-family", "font-size", "font-weight", "line-height", "text-align", "text-decoration", "text-transform", "color", "background", "background-color", "background-image", "border", "border-radius", "box-shadow", "opacity", "visibility", "overflow", "transition", "transform", "animation", "cursor", "pointer-events", "user-select", "white-space", "word-break", "gap", "place-items", "justify-content", "align-items", "flex-direction", "flex-wrap", "grid-template-columns", "grid-area", "backdrop-filter", "clip-path", "filter", "aspect-ratio", "columns", "break-inside", "mask-image", "object-fit", "scroll-behavior", "sticky"],
+            js: ["window", "document", "navigator", "location", "history", "screen", "alert", "confirm", "prompt", "setTimeout", "setInterval", "requestAnimationFrame", "cancelAnimationFrame", "fetch", "XMLHttpRequest", "WebSocket", "Worker", "Storage", "localStorage", "sessionStorage", "JSON", "Math", "Date", "Array", "Object", "String", "Number", "Boolean", "RegExp", "Error", "Promise", "Symbol", "Proxy", "Reflect", "Intl", "Map", "Set", "WeakMap", "WeakSet", "ArrayBuffer", "DataView", "Uint8Array", "Float64Array", "AudioContext", "CanvasRenderingContext2D", "MutationObserver", "IntersectionObserver", "ResizeObserver", "URL", "URLSearchParams", "FormData", "Blob", "File", "FileReader", "TextEncoder", "TextDecoder", "crypto", "subtle", "caches", "indexedDB"]
+        };
+
+        try {
+            console.log("Attempting to sync with MDN archives...");
+
+            // We use the MDN 'search-index' which is a large JSON file containing most web keywords
+            const response = await fetch('https://developer.mozilla.org/en-US/search-index.json');
+
+            if (!response.ok) throw new Error("MDN Fetch Failed");
+
+            const data = await response.json();
+
+            const liveDict = { html: [], css: [], js: [] };
+
+            data.forEach(item => {
+                const url = item.url.toLowerCase();
+                const title = item.title;
+
+                // Sort MDN titles into categories based on URL path
+                if (url.includes('/html/element/')) {
+                    liveDict.html.push(title);
+                } else if (url.includes('/css/')) {
+                    // Filter out non-properties (like tutorials)
+                    if (title.includes(':') || /^[a-z-]+$/.test(title)) {
+                        liveDict.css.push(title);
+                    }
+                } else if (url.includes('/javascript/reference/')) {
+                    // Clean up JS titles (e.g., "Array.prototype.map()" -> "map")
+                    const cleanJS = title.split('.').pop().replace('()', '');
+                    liveDict.js.push(cleanJS);
+                }
+            });
+
+            // Merge and Remove Duplicates
+            return {
+                html: [...new Set([...FALLBACK_DICT.html, ...liveDict.html])],
+                css: [...new Set([...FALLBACK_DICT.css, ...liveDict.css])],
+                js: [...new Set([...FALLBACK_DICT.js, ...liveDict.js])]
+            };
+
+        } catch (err) {
+            console.warn("Could not reach MDN. Using Built-in Master Dictionary.", err);
+            return FALLBACK_DICT;
+        }
+    }
+
+    // HOW TO USE:
+    getMasterDict().then(dict => {
+        console.log("Dictionary Loaded!");
+        console.log(`HTML tags: ${dict.html.length}`);
+        console.log(`CSS properties: ${dict.css.length}`);
+        console.log(`JS Keywords: ${dict.js.length}`);
+        window.MASTER_DICT = dict; // Save it globally
+ });
+
+        const editor = CodeMirror.fromTextArea(document.getElementById('editorArea'), {
+            mode: "htmlmixed",
+            lineNumbers: true,
+            tabSize: 2,
+            lineWrapping: true,
+            extraKeys: { 
+                "Tab": (cm) => {
+                    if (cm.somethingSelected()) {
+            cm.indentSelection("add");
+            return;
+        }
+
+        // 2. Accept ghost text if present
+        if (cm.state.ghostText) {
+            cm.replaceRange(cm.state.ghostText, cm.getCursor());
+            return;
+        }
+
+        // 3. Otherwise insert spaces
+        cm.replaceSelection("  ");
+                },
+		"Shift-Tab": (cm) => {
+        if (cm.somethingSelected()) {
+            cm.indentSelection("subtract");
+        }
+    },
+                "Ctrl-S": () => manualSave(),
+		"Ctrl-Q": () => toggleExp(true),
+            }
+        });
+
+        // --- 3. THE GHOST ENGINE ---
+        editor.on("change", (cm) => {
+            const cursor = cm.getCursor();
+            const line = cm.getLine(cursor.line);
+            const content = cm.getValue();
+            
+            // Context Detection
+            let mode = "html";
+            const token = cm.getTokenAt(cursor);
+            if (token.mode === "css") mode = "css";
+            if (token.mode === "javascript") mode = "js";
+
+            const wordMatch = line.slice(0, cursor.ch).match(/[\w.:-]+$/);
+            const word = wordMatch ? wordMatch[0] : "";
+            
+            if (cm.state.ghostMarker) cm.state.ghostMarker.clear();
+            cm.state.ghostText = null;
+
+            if (word.length >= 1) {
+                // Combine Master list + symbols already in document (Built-in discovery)
+                const docSymbols = Array.from(new Set(content.match(/\b\w+\b/g) || []));
+                const fullList = [...MASTER_DICT[mode], ...docSymbols];
+                
+                const match = fullList.find(w => w.startsWith(word) && w !== word);
+                if (match) {
+                    const suggestion = match.slice(word.length);
+                    cm.state.ghostText = suggestion;
+                    const span = document.createElement("span");
+                    span.className = "ghost-text";
+                    span.innerText = suggestion;
+                    cm.state.ghostMarker = cm.setBookmark(cursor, { widget: span });
+                }
+            }
+            
+            clearTimeout(window.previewTimer);
+            window.previewTimer = setTimeout(refreshPreview, 1000);
+        });
+
+        // --- 4. FILE SYSTEM LOGIC ---
+        function updateFileList() {
+            const container = document.getElementById('fileItems');
+            const files = Object.keys(localStorage).filter(k => k.startsWith(PREFIX)).map(k => k.replace(PREFIX, ''));
+            container.innerHTML = files.map(f => `
+                <div class="p-3 border-b border-[#3c3836] hover:bg-[#3c3836] cursor-pointer flex justify-between text-[11px] group" onclick="openFile('${f}')">
+                    <span class="${f === currentFile ? 'text-[#yellow] font-bold' : 'text-[#ebdbb2]'}">${f}</span>
+                    <button onclick="event.stopPropagation(); deleteFile('${f}')" class="text-[#fb4934] opacity-0 group-hover:opacity-100 font-bold">[DELETE]</button>
+                </div>
+            `).join('');
+        }
+
+        function openFile(name) {
+            currentFile = name;
+            editor.setValue(localStorage.getItem(PREFIX + name) || "");
+            document.getElementById('activeTab').innerHTML = `<span class="text-[#928374]">FILE:</span> ${name}`;
+            toggleExp(false);
+            refreshPreview();
+        }
+
+        function manualSave() {
+            localStorage.setItem(PREFIX + currentFile, editor.getValue());
+            msgArea.innerText = `"${currentFile}" ${editor.lineCount()}L written`;
+            setTimeout(() => msgArea.innerText = "", 3000);
+            refreshPreview();
+        }
+
+        document.getElementById('btnSaveLocal').onclick = manualSave;
+
+        document.getElementById('btnFetch').onclick = async () => {
+            const url = document.getElementById('urlInput').value;
+            if(!url) return;
+            try {
+                const res = await fetch(url);
+                const text = await res.text();
+                const name = url.split('/').pop().split('?')[0] || 'remote_src.html';
+                localStorage.setItem(PREFIX + name, text);
+                openFile(name);
+            } catch(e) { alert("CORS Blocked. Ensure the URL allows cross-origin requests."); }
+        };
+
+        // --- 5. LAYOUTS ---
+        let currentLayout = 'horizontal';
+        const paneCode = document.getElementById('paneCode');
+        const resizer = document.getElementById('resizer');
+        const workspace = document.getElementById('workspace');
+        const panePreview = document.getElementById('panePreview');
+
+        function setLayout(type) {
+    currentLayout = type;
+
+    workspace.classList.remove('flex-row', 'flex-col');
+    workspace.classList.add(type === 'vertical' ? 'flex-col' : 'flex-row');
+
+    resizer.className = type === 'vertical' ? 'resizer-v' : 'resizer-h';
+
+    panePreview.style.display = "block";
+    resizer.style.display = "block";
+
+    paneCode.style.width = "";
+    paneCode.style.height = "";
+
+    if (type === 'horizontal') {
+        paneCode.style.width = "50%";
+    }
+
+    if (type === 'vertical') {
+        paneCode.style.height = "50%";
+    }
+
+    if (type === 'focus') {
+        panePreview.style.display = "none";
+        resizer.style.display = "none";
+        paneCode.style.width = "100%";
+        paneCode.style.height = "100%";
+    }
+
+    requestAnimationFrame(() => editor.refresh());
+}
+
+
+        document.getElementById('layH').onclick = () => setLayout('horizontal');
+        document.getElementById('layV').onclick = () => setLayout('vertical');
+        document.getElementById('layF').onclick = () => setLayout('focus');
+
+        let isResizing = false;
+        resizer.onmousedown = () => { isResizing = true; document.getElementById('dragOverlay').classList.remove('hidden'); };
+        window.onmouseup = () => { isResizing = false; document.getElementById('dragOverlay').classList.add('hidden'); };
+        window.onmousemove = (e) => {
+            if (!isResizing) return;
+            const b = workspace.getBoundingClientRect();
+            if (currentLayout === 'horizontal') paneCode.style.width = ((e.clientX - b.left) / b.width * 100) + "%";
+            else if (currentLayout === 'vertical') paneCode.style.height = ((e.clientY - b.top) / b.height * 100) + "%";
+        };
+	// --- some other stuff I forgot ---
+	function deleteFile(name) {
+    if (!confirm(`Delete "${name}" permanently?`)) return;
+
+    localStorage.removeItem(PREFIX + name);
+
+    // If deleting the currently open file
+    if (name === currentFile) {
+        const remaining = Object.keys(localStorage)
+            .filter(k => k.startsWith(PREFIX))
+            .map(k => k.replace(PREFIX, ''));
+
+        if (remaining.length > 0) {
+            openFile(remaining[0]);
+        } else {
+            // No files left → create empty default
+            currentFile = 'index.html';
+            editor.setValue('');
+            localStorage.setItem(PREFIX + currentFile, '');
+            document.getElementById('activeTab').innerHTML =
+                `<span class="text-[#928374]">FILE:</span> ${currentFile}`;
+        }
+    }
+
+    updateFileList();
+    msgArea.innerText = `"${name}" deleted`;
+    setTimeout(() => msgArea.innerText = "", 2500);
+}
+
+
+        // --- 6. RUNNER & PREVIEW ---
+        function toggleExp(show) {
+            document.getElementById('modalExp').classList.toggle('hidden', !show);
+            if(show) updateFileList();
+        }
+        document.getElementById('btnExp').onclick = () => toggleExp(true);
+
+        function refreshPreview() {
+            const blob = new Blob([editor.getValue()], { type: 'text/html' });
+            liveFrame.src = URL.createObjectURL(blob);
+        }
+
+        document.getElementById('btnRunFull').onclick = () => {
+            const blob = new Blob([editor.getValue()], { type: 'text/html' });
+            document.getElementById('fsFrame').src = URL.createObjectURL(blob);
+            document.getElementById('fsContainer').classList.remove('hidden');
+        };
+
+        const closeFull = () => { document.getElementById('fsContainer').classList.add('hidden'); document.getElementById('fsFrame').src = ""; };
+        document.getElementById('btnCloseFs').onclick = closeFull;
+
+        editor.on("cursorActivity", () => {
+            const pos = editor.getCursor();
+            document.getElementById('cursorPos').innerText = `${pos.line + 1}:${pos.ch + 1}`;
+        });
+
+        // Initialize
+        window.onload = () => {
+            const files = Object.keys(localStorage).filter(k => k.startsWith(PREFIX));
+            if(files.length > 0) openFile(files[0].replace(PREFIX, ''));
+            else {
+                const welcomeHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Easy_Editor</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Recursive:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        /* OFFICIAL GRUVBOX PALETTE */
+        :root {
+            --bg-h: #1d2021;     /* Hard background */
+            --bg-s: #32302f;     /* Soft background */
+            --bg-1: #3c3836;
+            --fg: #fbf1c7;       /* Light cream text */
+            --fg-4: #a89984;     /* Muted text */
+            
+            --red: #fb4934;
+            --green: #b8bb26;
+            --yellow: #fabd2f;
+            --blue: #83a598;
+            --purple: #d3869b;
+            --aqua: #8ec07c;
+            --orange: #fe8019;
+            --gray: #928374;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            background-color: var(--bg-h);
+            color: var(--fg);
+            /* Recursive font adds a nice retro-tech feel */
+            font-family: 'Recursive', 'Fira Code', monospace;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .card {
+            background-color: var(--bg-s);
+            /* Thick, hard borders typical of Gruvbox UI designs */
+            border: 3px solid var(--bg-1);
+            border-bottom: 8px solid var(--bg-1);
+            border-right: 8px solid var(--bg-1);
+            border-radius: 4px;
+            padding: clamp(2rem, 5vw, 4rem);
+            max-width: 800px;
+            width: 100%;
+            position: relative;
+        }
+
+        /* Top Bar Decoration */
+        .card-header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 30px;
+            background: var(--bg-1);
+            display: flex;
+            align-items: center;
+            padding: 0 15px;
+            gap: 8px;
+        }
+
+        .dot { width: 10px; height: 10px; border-radius: 50%; }
+        .red { background: var(--red); }
+        .yellow { background: var(--yellow); }
+        .green { background: var(--green); }
+
+        h1 {
+            color: var(--aqua);
+            margin: 1rem 0;
+            font-size: clamp(2.5rem, 8vw, 4rem);
+            font-weight: 900;
+            text-transform: lowercase;
+            letter-spacing: -2px;
+        }
+
+        h1::after {
+            content: "_";
+            color: var(--orange);
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink { 50% { opacity: 0; } }
+
+        p {
+            line-height: 1.5;
+            font-size: 1.2rem;
+            color: var(--fg-4);
+            border-left: 4px solid var(--yellow);
+            padding-left: 20px;
+            margin: 2rem 0;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 3rem;
+        }
+
+        .badge {
+            background: var(--bg-1);
+            border-left: 4px solid var(--blue);
+            padding: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--blue);
+            transition: 0.2s;
+        }
+
+        .badge:hover {
+            background: var(--blue);
+            color: var(--bg-h);
+            transform: translateX(5px);
+        }
+
+        .badge:nth-child(2) { border-left-color: var(--purple); color: var(--purple); }
+        .badge:nth-child(2):hover { background: var(--purple); color: var(--bg-h); }
+        
+        .badge:nth-child(3) { border-left-color: var(--orange); color: var(--orange); }
+        .badge:nth-child(3):hover { background: var(--orange); color: var(--bg-h); }
+
+        .badge:nth-child(4) { border-left-color: var(--green); color: var(--green); }
+        .badge:nth-child(4):hover { background: var(--green); color: var(--bg-h); }
+
+        .terminal-foot {
+            margin-top: 3rem;
+            font-family: 'Fira Code', monospace;
+            background: var(--bg-h);
+            padding: 15px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        .token-keyword { color: var(--red); }
+        .token-string { color: var(--green); }
+        .token-comment { color: var(--gray); font-style: italic; }
+
+        @media (max-width: 480px) {
+            .card { padding: 3rem 1.5rem 1.5rem; }
+            h1 { font-size: 2.5rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="card-header">
+            <div class="dot red"></div>
+            <div class="dot yellow"></div>
+            <div class="dot green"></div>
+        </div>
+
+        <h1>easy_editor</h1>
+        
+        <p>A high-performance environment for web prototyping. Purely static, lightning fast.</p>
+        
+        <div class="feature-grid">
+            <div class="badge">fn no_server()</div>
+            <div class="badge">mod local_storage</div>
+            <div class="badge">type def</div>
+            <div class="badge">use easy_editor</div>
+        </div>
+
+        <div class="terminal-foot">
+            <span class="token-comment">// Safety first</span><br>
+            <span class="token-keyword">if</span> (privacy == <span class="token-string">"absolute"</span>) { <br>
+            &nbsp;&nbsp;return <span class="token-string">"Logic localized. No data shared."</span>; <br>
+            }
+        </div>
+    </div>
+</body>
+</html>`;
+
+    // Save the formatted string to LocalStorage
+    localStorage.setItem(PREFIX + 'index.html', welcomeHTML);
+                openFile('index.html');
+            }
+        };
+
+        document.getElementById('btnNew').onclick = () => {
+            const n = prompt("Filename:", "app.html");
+            if(n) { localStorage.setItem(PREFIX + n, ""); openFile(n); }
+        };
+
+        document.getElementById('btnUpload').onclick = () => document.getElementById('fileInput').click();
+        document.getElementById('fileInput').onchange = (e) => {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.onload = (ev) => { localStorage.setItem(PREFIX + file.name, ev.target.result); openFile(file.name); };
+            reader.readAsText(file);
+        };
+
+        document.getElementById('btnExport').onclick = () => {
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(new Blob([editor.getValue()], {type: "text/html"}));
+            a.download = currentFile;
+            a.click();
+        };
+
+        window.onkeydown = (e) => {
+            if(e.key === "Escape") { toggleExp(false); closeFull(); }
+        };
+    </script>
+</body>
+</html>

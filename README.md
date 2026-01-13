@@ -44,7 +44,7 @@ It is fully static and client-side, enabling quick prototyping without any serve
 
 ## Demo
 
-![EASY_EDITOR Preview](https://user-images.githubusercontent.com/sadbath/EASY_EDITOR/demo_screenshot.png)
+![EASY_EDITOR Preview](https://github.com/sadbath/Easy_Editor/blob/main/demo_screenshot.png)
 
 The editor displays dual-pane **code + live preview**, fully responsive, with Vim-style navigation and Gruvbox theme.
 

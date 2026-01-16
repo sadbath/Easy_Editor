@@ -210,16 +210,27 @@
  });
 
         const editor = CodeMirror.fromTextArea(document.getElementById('editorArea'), {
-            mode: "htmlmixed",
-            lineNumbers: true,
-            tabSize: 2,
-            lineWrapping: true,
-            extraKeys: { 
-                "Tab": (cm) => {
-                    if (cm.somethingSelected()) {
-            cm.indentSelection("add");
-            return;
-        }
+	      mode: "htmlmixed",
+	      lineNumbers: true,
+	      tabSize: 2,
+	      lineWrapping: true,
+	      autoCloseTags: true,
+	      autoCloseBrackets: true,
+	      foldGutter: true,
+	      gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
+	      matchTags: { bothTags: true },
+	      extraKeys: {
+	        "Tab": (cm) => {
+	          if (cm.somethingSelected()) cm.indentSelection("add");
+	          else if (cm.state.ghostText) cm.replaceRange(cm.state.ghostText, cm.getCursor());
+	          else cm.replaceSelection("  ");
+	        },
+	        "Shift-Tab": (cm) => { if (cm.somethingSelected()) cm.indentSelection("subtract"); },
+	        "Ctrl-S": () => manualSave(),
+	        "Ctrl-Q": () => toggleExp(true)
+	      }
+	    });
+
 
         // 2. Accept ghost text if present
         if (cm.state.ghostText) {

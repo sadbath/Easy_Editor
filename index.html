@@ -231,26 +231,6 @@
 	      }
 	    });
 
-
-        // 2. Accept ghost text if present
-        if (cm.state.ghostText) {
-            cm.replaceRange(cm.state.ghostText, cm.getCursor());
-            return;
-        }
-
-        // 3. Otherwise insert spaces
-        cm.replaceSelection("  ");
-                },
-		"Shift-Tab": (cm) => {
-        if (cm.somethingSelected()) {
-            cm.indentSelection("subtract");
-        }
-    },
-                "Ctrl-S": () => manualSave(),
-		"Ctrl-Q": () => toggleExp(true),
-            }
-        });
-
         // --- 3. THE GHOST ENGINE ---
         editor.on("change", (cm) => {
             const cursor = cm.getCursor();
